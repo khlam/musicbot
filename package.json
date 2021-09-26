@@ -1,0 +1,33 @@
+{
+  "name": "musicbot",
+  "version": "2.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khlam/musicbot.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/khlam/musicbot/issues"
+  },
+  "homepage": "",
+  "dependencies": {
+    "@discordjs/opus": "^0.5.3",
+    "buffer-alloc": "^1.2.0",
+    "buffer-from": "^1.1.2",
+    "deepspeech": "^0.9.3",
+    "discord.js": "^12.5.3",
+    "discord.js-commando": "^0.12.3",
+    "fast-levenshtein": "^3.0.0",
+    "graceful-fs": "^4.2.8",
+    "node-fetch": "^2.6.1",
+    "request": "^2.88.2",
+    "sox-stream": "github:khlam/sox-stream",
+    "ytdl-core": "^4.9.1"
+  }
+}

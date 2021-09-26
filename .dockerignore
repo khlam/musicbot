@@ -1,0 +1,8 @@
+node_modules/
+models/
+audio/
+doc/
+.git/
+.github/
+.env
+README.models

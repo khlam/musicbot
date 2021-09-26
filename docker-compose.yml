@@ -1,0 +1,15 @@
+version: "3.3"
+
+services:
+  bot:
+    container_name: musicbot
+    build:
+        context: .
+    volumes:
+      - .:/app/
+      - /app/node_modules
+      - /app/models
+    environment:
+        TOKEN: ${TOKEN}
+        GSHEET: ${GSHEET}
+        DEBUG: ${DEBUG}
