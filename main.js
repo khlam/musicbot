@@ -56,7 +56,7 @@ function doTranscribe() {
                 _audioBuffer.push(t.initWAVHeader()) // Insert Header
 
                 let _setStatus = false
-                
+                let localTranscibe = false
                 function _writeData(data) {
                     _audioBuffer.push(data)
                     if (_audioBuffer.length > 50) {
@@ -66,11 +66,13 @@ function doTranscribe() {
                         }
                         if ((performance.now() - talkStart) > maxCMDDuration){
                             console.log("max cmd duration")
-                            isTranscribing = false
-                            audioStream.removeListener('data', _writeData)
-                            audioStream.removeListener('end', _transcribe)
+                            _endTranscribe()
                             globClient.user.setActivity(`max cmd time`,"")
                             return
+                        }else {
+                            if (localTranscibe === false){
+                                _transcribe()
+                            }
                         }
                     }
                 }
@@ -81,21 +83,29 @@ function doTranscribe() {
 
                     if (_finalAudioBuffer.toString().length > 100000) {
                         globClient.user.setActivity(`Intrp. #${userTag}`)
+                        console.log("Transcribing...")
                         t.transcribe(_finalAudioBuffer).then(result => {
                             isTranscribing = false
+                            localTranscibe = false
                             interpretCommand(result, userTag)
+                            _endTranscribe()
                         })
                     }else {
                         console.log("\t\tBuffer data too short")
-                        isTranscribing = false
-                        audioStream.removeListener('data', _writeData)
-                        audioStream.removeListener('end', _transcribe)
+                        _endTranscribe()
                         return
                     }
                 }
 
+                function _endTranscribe() {
+                    isTranscribing = false
+                    localTranscibe = false
+                    audioStream.removeListener('data', _writeData)
+                    audioStream.removeListener('end', _endTranscribe)
+                }
+
                 audioStream.on('data', _writeData)
-                audioStream.on('end', _transcribe)
+                audioStream.on('end', _endTranscribe)
 
             }catch(e){
                 console.log("ERROR", e)
