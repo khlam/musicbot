@@ -39,24 +39,22 @@ function doTranscribe() {
             isTranscribing = true
 
             try{
+                let _setStatus = false
+                let localTranscibe = false
 
-                if (speaking.bitfield == 0 || user.bot) {
+                if (user.bot) {
                     isTranscribing = false
                     return
                 }
-                
-                const talkStart = performance.now()
-
+            
                 const audioStream = voiceChannelConnection.receiver.createStream(user, { mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
                 
                 const userTag = `${user.tag}`.split("#")[1]
-                console.log(`#${userTag} speaking`)
+                console.log(`#${userTag} speaking`, isTranscribing, _setStatus, localTranscibe)
                 
                 let _audioBuffer = []
                 _audioBuffer.push(t.initWAVHeader()) // Insert Header
-
-                let _setStatus = false
-                let localTranscibe = false
+                
                 function _writeData(data) {
                     _audioBuffer.push(data)
                     if (_audioBuffer.length > 50) {
@@ -64,15 +62,10 @@ function doTranscribe() {
                             _setStatus = true
                             globClient.user.setActivity(`👂 to #${userTag}`,"")
                         }
-                        if ((performance.now() - talkStart) > maxCMDDuration){
-                            console.log("max cmd duration")
-                            _endTranscribe()
-                            globClient.user.setActivity(`max cmd time`,"")
-                            return
-                        }else {
-                            if (localTranscibe === false){
-                                _transcribe()
-                            }
+                        if (localTranscibe === false){
+                            localTranscibe = true
+                            _setStatus = false
+                            _transcribe()
                         }
                     }
                 }
@@ -81,27 +74,33 @@ function doTranscribe() {
                     const _finalAudioBuffer = Buffer.concat(_audioBuffer)
                     console.log("\tbuffer length: ", _finalAudioBuffer.toString().length)
 
-                    if (_finalAudioBuffer.toString().length > 100000) {
-                        globClient.user.setActivity(`Intrp. #${userTag}`)
+                    if (_finalAudioBuffer.toString().length > 100000 || _finalAudioBuffer.toString().length < 300000) {
+                        if (_setStatus === false) {
+                            _setStatus = true
+                            globClient.user.setActivity(`Intrp. #${userTag}`)
+                        }
+                        
                         console.log("Transcribing...")
                         t.transcribe(_finalAudioBuffer).then(result => {
-                            isTranscribing = false
+                            _setStatus = false
                             localTranscibe = false
                             interpretCommand(result, userTag)
                             _endTranscribe()
                         })
                     }else {
-                        console.log("\t\tBuffer data too short")
+                        console.log("\t\tBuffer data too short/long")
                         _endTranscribe()
                         return
                     }
                 }
 
                 function _endTranscribe() {
+                    console.log("ending transcribe")
                     isTranscribing = false
                     localTranscibe = false
                     audioStream.removeListener('data', _writeData)
                     audioStream.removeListener('end', _endTranscribe)
+                    return
                 }
 
                 audioStream.on('data', _writeData)
@@ -137,7 +136,7 @@ function interpretCommand(_rawTranscript, userTag) {
         }else
         
         // 2) Leave the channel and clear all songs
-        if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 2) {
+        if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 2 || levenshtein.get(command, 'exit') <= 2) {
             msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
             lastExecutedCommandTime = currentCommandTime
             musicQueue = []
@@ -448,7 +447,7 @@ client.registry
 
 client.on('ready', () => {
     console.log("Music Bot has logged in.")
-    client.user.setActivity(`000`)
+    client.user.setActivity(`ready`)
     globClient = client
 })
 
