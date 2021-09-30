@@ -33,85 +33,84 @@ const client = new commando.CommandoClient({
     commandPrefix: '-'
 })
 
+const DeepSpeech = require('deepspeech')
+let modelPath = '/app/models/deepspeech-0.9.3-models.pbmm'
+let model = new DeepSpeech.Model(modelPath)
+
 function doTranscribe() {
     voiceChannelConnection.on('speaking', async (user, speaking) => {
+        console.log(speaking.bitfield)
         if (isTranscribing === false) {
             isTranscribing = true
 
-            try{
-                let _setStatus = false
-                let localTranscibe = false
-
-                if (user.bot) {
-                    isTranscribing = false
-                    return
-                }
-            
-                const audioStream = voiceChannelConnection.receiver.createStream(user, { mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
-                
-                const userTag = `${user.tag}`.split("#")[1]
-                console.log(`#${userTag} speaking`, isTranscribing, _setStatus, localTranscibe)
-                
-                let _audioBuffer = []
-                _audioBuffer.push(t.initWAVHeader()) // Insert Header
-                
-                function _writeData(data) {
-                    _audioBuffer.push(data)
-                    if (_audioBuffer.length > 50) {
-                        if (_setStatus === false) {
-                            _setStatus = true
-                            globClient.user.setActivity(`👂 to #${userTag}`,"")
-                        }
-                        if (localTranscibe === false){
-                            localTranscibe = true
-                            _setStatus = false
-                            _transcribe()
-                        }
-                    }
-                }
-
-                function _transcribe() {
-                    const _finalAudioBuffer = Buffer.concat(_audioBuffer)
-                    console.log("\tbuffer length: ", _finalAudioBuffer.toString().length)
-
-                    if (_finalAudioBuffer.toString().length > 100000 || _finalAudioBuffer.toString().length < 300000) {
-                        if (_setStatus === false) {
-                            _setStatus = true
-                            globClient.user.setActivity(`Intrp. #${userTag}`)
-                        }
-                        
-                        console.log("Transcribing...")
-                        t.transcribe(_finalAudioBuffer).then(result => {
-                            _setStatus = false
-                            localTranscibe = false
-                            interpretCommand(result, userTag)
-                            _endTranscribe()
-                        })
-                    }else {
-                        console.log("\t\tBuffer data too short/long")
-                        _endTranscribe()
-                        return
-                    }
-                }
-
-                function _endTranscribe() {
-                    console.log("ending transcribe")
-                    isTranscribing = false
-                    localTranscibe = false
-                    audioStream.removeListener('data', _writeData)
-                    audioStream.removeListener('end', _endTranscribe)
-                    return
-                }
-
-                audioStream.on('data', _writeData)
-                audioStream.on('end', _endTranscribe)
-
-            }catch(e){
-                console.log("ERROR", e)
-                globClient.user.setActivity(`done`)
+            if (user.bot) {
                 isTranscribing = false
                 return
             }
+
+            let _setStatus = false
+            let localTranscibe = false
+            let modelStream = model.createStream()
+
+            let _audioBuffer = []
+            _audioBuffer.push(t.initWAVHeader())
+
+            const userTag = `${user.tag}`.split("#")[1]
+            console.log(`#${userTag} speaking`)
+
+            const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm', end: 'manual'}) // 16-bit signed PCM, stereo 48KHz stream
+            
+            function _writeData(data) {
+                _audioBuffer.push(data)
+                if (_audioBuffer.length > 50) {
+                    if (_setStatus === false) {
+                        _setStatus = true
+                        globClient.user.setActivity(`👂 to #${userTag}`,"")
+                    }
+                    if (localTranscibe === false){
+                        localTranscibe = true
+                        _setStatus = false
+                        _transcribe()
+                    }
+                }
+            }
+
+            function _transcribe() {
+                const _finalAudioBuffer = Buffer.concat(_audioBuffer)
+                console.log("\tbuffer length: ", _finalAudioBuffer.toString().length)
+
+                if (_finalAudioBuffer.toString().length > 100000 || _finalAudioBuffer.toString().length < 300000) {
+                    if (_setStatus === false) {
+                        _setStatus = true
+                        globClient.user.setActivity(`Intrp. #${userTag}`)
+                    }
+                    
+                    console.log("Transcribing...")
+                    t.convertSampleRate(_finalAudioBuffer).then(resultBuffer => {
+                        modelStream.feedAudioContent(resultBuffer)                            
+                        let result = modelStream.intermediateDecode()
+                        console.log("\t> ", result)
+                    })
+                }else {
+                    console.log("\t\tBuffer data too short/long")
+                    _endTranscribe()
+                    return
+                }
+            }
+
+            function _endTranscribe() {
+                console.log("ending transcribe")
+                isTranscribing = false
+                localTranscibe = false
+                DeepSpeech.FreeStream(modelStream)
+                audioStream.removeListener('data', _writeData)
+                audioStream.removeListener('end', _endTranscribe)
+                return
+            }
+
+            audioStream.on('data', _writeData)
+            audioStream.on('end', _endTranscribe)
+            audioStream.end()
         }
     })
 }

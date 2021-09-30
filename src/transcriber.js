@@ -1,11 +1,8 @@
-const DeepSpeech = require('deepspeech')
 const Sox = require('sox-stream')
 const MemoryStream = require('memory-stream')
 const Duplex = require('stream').Duplex
 
-let modelPath = '/app/models/deepspeech-0.9.3-models.pbmm'
-let model = new DeepSpeech.Model(modelPath)
-const desiredSampleRate = model.sampleRate()
+const desiredSampleRate = 16000
 
 function bufferToStream(buffer) {
 	let stream = new Duplex()
@@ -14,7 +11,7 @@ function bufferToStream(buffer) {
 	return stream
 }
 
-function transcribe(_buf) {
+function convertSampleRate(_buf) {
     return new Promise(function (resolve, reject) {
         let memStream = new MemoryStream()
 
@@ -34,16 +31,8 @@ function transcribe(_buf) {
         })).pipe(memStream)
 
         memStream.on('finish', () => {
-            let audioBuffer = memStream.toBuffer()
-            let result = model.stt(audioBuffer)
-
-            isTranscribing = false
-
-            console.log("a Size:", audioBuffer.toString().length)
-
-            console.log("\tRESULT:", result)
-            
-            return resolve(result)
+            let audioBuffer = memStream.toBuffer()            
+            return resolve(audioBuffer)
         })
     })
 }
@@ -147,4 +136,4 @@ function initWAVHeader() {
     return header
 }
 
-module.exports = {transcribe, bufferToStream, initWAVHeader}
+module.exports = {convertSampleRate, bufferToStream, initWAVHeader}
