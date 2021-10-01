@@ -9,6 +9,8 @@ const gsheet = require('./src/gsheet')
 const { performance } = require('perf_hooks')
 
 let musicQueue = []
+let previousSongs = []
+
 let msgChannel
 let voiceChannel
 let voiceChannelConnection
@@ -107,10 +109,6 @@ function doTranscribe() {
     })
 }
 
-Array.prototype.insert = function ( index, item ) {
-    this.splice( index, 0, item )
-}
-
 function interpretCommand(_rawTranscript, userTag) {
     const rawTranscript = _rawTranscript    // What the system "heard"
     command = rawTranscript.replace(/\s/g, '') // remove spaces
@@ -127,14 +125,21 @@ function interpretCommand(_rawTranscript, userTag) {
         }else
         
         // 2) Leave the channel and clear all songs
-        if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 2) {
+        if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 1) {
             msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
             lastExecutedCommandTime = currentCommandTime
             musicQueue = []
+            previousSongs = []
             voiceChannel.join().then(() => {
                 isTranscribing = false
                 voiceChannel.leave()
             })
+        }
+        if (levenshtein.get(command, 'replay') <= 2 || levenshtein.get(command, 'playlast') <= 4){
+            musicQueue.unshift(previousSongs[0])
+            setTimeout(() => {
+                _playSong(voiceChannelConnection)
+            }, 500)
         }else {
             // Run Custom Command
             let _objToPlay = false
@@ -167,6 +172,7 @@ function interpretCommand(_rawTranscript, userTag) {
 
 function skipSong(extraString=""){
     if (musicQueue.length !== 0){
+        previousSongs.push(musicQueue[0])
         msgChannel.channel.send(`${extraString}**Skipped** \t *${musicQueue[0].name}*`)
         musicQueue.shift()
         setTimeout(() => {
