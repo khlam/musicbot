@@ -9,13 +9,13 @@ const gsheet = require('./src/gsheet')
 const { performance } = require('perf_hooks')
 
 let musicQueue = []
+let previousSongs = []
+
 let msgChannel
 let voiceChannel
 let voiceChannelConnection
 
 const maxCMDDuration = 4000
-
-let lastExecutedCommandTime = performance.now()
 
 let isTranscribing = false
 
@@ -39,14 +39,16 @@ let model = new DeepSpeech.Model(modelPath)
 
 function doTranscribe() {
     voiceChannelConnection.on('speaking', async (user, speaking) => {
-        console.log(speaking.bitfield)
+        //console.log(speaking.bitfield)
         if (isTranscribing === false) {
             isTranscribing = true
-
+            
             if (user.bot) {
                 isTranscribing = false
                 return
             }
+
+            const startedSpeaking = performance.now()
 
             let _setStatus = false
             let localTranscibe = false
@@ -78,24 +80,18 @@ function doTranscribe() {
             function _transcribe() {
                 const _finalAudioBuffer = Buffer.concat(_audioBuffer)
                 console.log("\tbuffer length: ", _finalAudioBuffer.toString().length)
-
-                if (_finalAudioBuffer.toString().length > 100000 || _finalAudioBuffer.toString().length < 300000) {
-                    if (_setStatus === false) {
-                        _setStatus = true
-                        globClient.user.setActivity(`Intrp. #${userTag}`)
-                    }
-                    
-                    console.log("Transcribing...")
-                    t.convertSampleRate(_finalAudioBuffer).then(resultBuffer => {
-                        modelStream.feedAudioContent(resultBuffer)                            
-                        let result = modelStream.intermediateDecode()
-                        console.log("\t> ", result)
-                    })
-                }else {
-                    console.log("\t\tBuffer data too short/long")
-                    _endTranscribe()
-                    return
+                if (_setStatus === false) {
+                    _setStatus = true
+                    globClient.user.setActivity(`Intrp. #${userTag}`)
                 }
+                
+                console.log("Transcribing...")
+                t.convertSampleRate(_finalAudioBuffer).then(resultBuffer => {
+                    modelStream.feedAudioContent(resultBuffer)                            
+                    let result = modelStream.intermediateDecode()
+                    console.log("\t> ", result)
+                    commandSwitcher(result, userTag)
+                })
             }
 
             function _endTranscribe() {
@@ -110,45 +106,94 @@ function doTranscribe() {
 
             audioStream.on('data', _writeData)
             audioStream.on('end', _endTranscribe)
-            audioStream.end()
+            //audioStream.end()
         }
     })
 }
 
-Array.prototype.insert = function ( index, item ) {
-    this.splice( index, 0, item )
+function interpretCommand(rawString) {
+    const rawTranscript = rawString
+    command = rawTranscript.replace(/\s/g, '') // remove spaces
+    const cmdDictionary = [
+        {cmd: 'skipsong', d: 3, arg: 'skip'},
+        {cmd: 'nextsong', d: 3, arg: 'skip'},
+        {cmd: 'next', d: 2, arg: 'skip'},
+
+        {cmd: 'replay', d: 2, arg: 'replay'},
+        {cmd: 'playlast', d: 3, arg: 'replay'},
+        {cmd: 'lastsong', d: 3, arg: 'replay'},
+
+        {cmd: 'leavechannel', d: 4, arg: 'leave'},
+        {cmd: 'leave', d: 1, arg: 'leave'},
+        {cmd: 'botleave', d: 1, arg: 'leave'},
+    ]
+
+    for (let i = 0; i < cmdDictionary.length; i++) {
+        if (levenshtein.get(command, cmdDictionary[i].cmd) <= cmdDictionary[i].d) {
+            return cmdDictionary[i].arg
+        }
+    }
+    return false
 }
 
-function interpretCommand(_rawTranscript, userTag) {
-    const rawTranscript = _rawTranscript    // What the system "heard"
-    command = rawTranscript.replace(/\s/g, '') // remove spaces
-    let currentCommandTime = performance.now()
-    
+function commandSwitcher(rawTranscript, userTag) {    
     globClient.user.setActivity(`done`,"")
 
-    if (currentCommandTime - lastExecutedCommandTime > 3000) {
-
-        // 1) Skip song
-        if ((levenshtein.get(command, 'skipsong') <= 3)) {
-            lastExecutedCommandTime = currentCommandTime
+    const cmd = interpretCommand(rawTranscript)
+    console.log("the command is", cmd)
+    switch(cmd) {
+        case 'skip':
             skipSong(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "skip song"\t`)
-        }else
+            break
         
-        // 2) Leave the channel and clear all songs
-        if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 2 || levenshtein.get(command, 'exit') <= 2) {
+        case 'leave':
             msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
-            lastExecutedCommandTime = currentCommandTime
+
             musicQueue = []
+            previousSongs = []
             voiceChannel.join().then(() => {
                 isTranscribing = false
                 voiceChannel.leave()
             })
-        }else {
+            break
+        
+        case 'replay':
+            if (previousSongs.length > 0) {
+                const _previousSong = previousSongs[0] // get the previous song
+
+                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t **Now Playing** *${_previousSong.name}*`)
+                console.log(musicQueue)
+                console.log(previousSongs)
+                // put the previous song at the start of the queue
+                if (musicQueue.length >= 1) {
+                    musicQueue.unshift(_previousSong)
+                }else {
+                    musicQueue = []
+                    musicQueue.push(_previousSong)
+                }
+    
+                // decrement the previous song list
+                if (previousSongs.length >= 1 ) {
+                    previousSongs.shift()
+                }else {
+                    previousSongs = []
+                }
+
+                setTimeout(() => {
+                    _playSong(voiceChannelConnection)
+                }, 500)
+            }else {
+                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t No audio to replay`)
+            }
+            
+            break
+        
+        default:
             // Run Custom Command
             let _objToPlay = false
             let _consumedTrigger = false
 
-            if (triggerArray !== undefined){
+            if (triggerArray !== undefined) {
                 triggerArray.forEach(triggerObj => {
                     let _triggerWord = triggerObj.trigger
                     let _lev = triggerObj.lev
@@ -169,26 +214,18 @@ function interpretCommand(_rawTranscript, userTag) {
                     }
                 }
             }
-        }
     }
 }
 
-function skipSong(extraString=""){
+function skipSong(extraString="") {
     if (musicQueue.length !== 0){
         msgChannel.channel.send(`${extraString}**Skipped** \t *${musicQueue[0].name}*`)
+        previousSongs.unshift(musicQueue[0])
         musicQueue.shift()
         setTimeout(() => {
             _playSong(voiceChannelConnection)
         }, 500)
     }else{
-        if (extraString === "") {
-            voiceChannel.join().then(() => {
-                isTranscribing = false
-                voiceChannel.leave().then(() => {
-                    voiceChannel.join()
-                })
-            })
-        }
         return
     }
 }
@@ -215,11 +252,6 @@ async function _playSong(connection) {
             if(musicQueue.length === 0) {
                 console.log("No more songs to be played...")
                 musicQueue = []
-                /*
-                voiceChannel.join().then(() => {
-                    isTranscribing = false
-                    voiceChannel.leave()
-                })*/
             }else {
                 skipSong()
             }
@@ -233,11 +265,6 @@ async function _playSong(connection) {
         }catch(e){
             return
         }
-        /*
-        voiceChannel.join().then(() => {
-            isTranscribing = false
-            voiceChannel.leave()
-        })*/
     }
 }
 
@@ -351,7 +378,6 @@ const skip = class extends commando.Command {
                 console.log("No more songs to be played...")
                 musicQueue = []
                 isTranscribing = false
-                //voiceChannel.leave()
             }else {
                 skipSong()
             }
@@ -392,7 +418,12 @@ const leave = class extends commando.Command {
     async run(msg) {
         msgChannel = msg
         try {
-            voiceChannel.leave()
+            musicQueue = []
+            previousSongs = []
+            voiceChannel.join().then(() => {
+                isTranscribing = false
+                voiceChannel.leave()
+            })
         }catch(e){
             return   
         }
@@ -419,7 +450,6 @@ const pull = class extends commando.Command {
             triggerArray = _res
             console.log("Google sheet pull done.")
             msgChannel.channel.send(`Google sheet pull complete. ${triggerArray.length} unique triggers.`)
-            //console.log(triggerObj)
         })
     }
 }

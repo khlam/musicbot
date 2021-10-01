@@ -5,17 +5,16 @@ on:
     branches:
       - main
       - dev
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout to Repo + LFS
+      - name: Checkout to Repo
         uses: actions/checkout@v2
-        with:
-          lfs: false
-      - name: LFS Objects
-        run: git lfs checkout
+      #  with:
+      #    lfs: false
+      #- name: LFS Objects
+      #    run: git lfs checkout
       - name: Heroku Deploy
         uses: khlam/heroku-deploy@v3.12.12
         with:
