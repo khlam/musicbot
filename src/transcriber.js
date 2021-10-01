@@ -37,6 +37,25 @@ function convertSampleRate(_buf) {
     })
 }
 
+function transcribe(bufferArray, stream) {
+    return new Promise(function (resolve, reject) {
+        const _finalAudioBuffer = Buffer.concat(bufferArray)
+        
+        if ((_finalAudioBuffer.toString().length > 150000) && (_finalAudioBuffer.toString().length < 400000)){
+
+            console.log("\tbuffer length: ", _finalAudioBuffer.toString().length)
+        
+            console.log("Transcribing...")
+            convertSampleRate(_finalAudioBuffer).then(resultBuffer => {
+                stream.feedAudioContent(resultBuffer)                            
+                return resolve(stream.intermediateDecode())
+            })
+        }else {
+            return resolve("")
+        }
+    })
+}
+
 // Source: https://github.com/TooTallNate/node-wav/blob/master/lib/writer.js
 function initWAVHeader() {
     var MAX_WAV = 4294967295 - 100
@@ -136,4 +155,4 @@ function initWAVHeader() {
     return header
 }
 
-module.exports = {convertSampleRate, bufferToStream, initWAVHeader}
+module.exports = {convertSampleRate, bufferToStream, transcribe, initWAVHeader}

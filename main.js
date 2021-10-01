@@ -3,7 +3,7 @@ const ytdl = require('ytdl-core')
 const fs = require('graceful-fs')
 const levenshtein = require('fast-levenshtein')
 const youtube = require('./src/youtubeObj')
-const t = require('./src/transcriber')
+const transcriber = require('./src/transcriber')
 const gsheet = require('./src/gsheet')
 
 const { performance } = require('perf_hooks')
@@ -16,8 +16,6 @@ let voiceChannel
 let voiceChannelConnection
 
 const maxCMDDuration = 4000
-
-let isTranscribing = false
 
 let authObj = {}
 authObj.TOKEN = process.env.TOKEN
@@ -37,78 +35,113 @@ const DeepSpeech = require('deepspeech')
 let modelPath = '/app/models/deepspeech-0.9.3-models.pbmm'
 let model = new DeepSpeech.Model(modelPath)
 
-function doTranscribe() {
-    voiceChannelConnection.on('speaking', async (user, speaking) => {
-        //console.log(speaking.bitfield)
-        if (isTranscribing === false) {
-            isTranscribing = true
-            
-            if (user.bot) {
-                isTranscribing = false
-                return
+let userCMDDict = {}
+let isTranscribing = false
+
+function freeCMDDict() {
+/*    try {
+        Object.keys(userCMDDict).forEach( user => {
+            DeepSpeech.FreeStream(user.stream)
+        })
+    }catch(e) {}*/
+    userCMDDict = {}
+    console.log("\tCleared all user audio command streams")
+}
+
+function interpretRoutine(userTag, wavData) {
+    if (userCMDDict.hasOwnProperty(`${userTag}`)) {// perform transcription
+        if (userCMDDict[`${userTag}`].audioBuffer.length > 150) {
+            if (isTranscribing === false) {
+                console.log(`\t#${userTag} audio reset`)
+                //DeepSpeech.FreeStream(userCMDDict[`${userTag}`].stream)
+                userCMDDict[`${userTag}`].stream = null
+                userCMDDict[`${userTag}`].stream = model.createStream()
+
+                userCMDDict[`${userTag}`].audioBuffer = []
+                userCMDDict[`${userTag}`].audioBuffer.push(transcriber.initWAVHeader())
+                userCMDDict[`${userTag}`].audioBuffer.push(wavData)
             }
+        }else {
+            userCMDDict[`${userTag}`].audioBuffer.push(wavData)
 
-            const startedSpeaking = performance.now()
-
-            let _setStatus = false
-            let localTranscibe = false
-            let modelStream = model.createStream()
-
-            let _audioBuffer = []
-            _audioBuffer.push(t.initWAVHeader())
-
-            const userTag = `${user.tag}`.split("#")[1]
-            console.log(`#${userTag} speaking`)
-
-            const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
-            
-            function _writeData(data) {
-                _audioBuffer.push(data)
-                if (_audioBuffer.length > 50) {
-                    if (_setStatus === false) {
-                        _setStatus = true
-                        globClient.user.setActivity(`👂 to #${userTag}`,"")
-                    }
-                    if (localTranscibe === false){
-                        localTranscibe = true
-                        _setStatus = false
-                        _transcribe()
-                    }
-                }
-            }
-
-            function _transcribe() {
-                const _finalAudioBuffer = Buffer.concat(_audioBuffer)
-                console.log("\tbuffer length: ", _finalAudioBuffer.toString().length)
-                if (_setStatus === false) {
-                    _setStatus = true
-                    globClient.user.setActivity(`Intrp. #${userTag}`)
-                }
-                
-                console.log("Transcribing...")
-                t.convertSampleRate(_finalAudioBuffer).then(resultBuffer => {
-                    modelStream.feedAudioContent(resultBuffer)                            
-                    let result = modelStream.intermediateDecode()
-                    console.log("\t> ", result)
+            if (isTranscribing === false){
+                isTranscribing = true
+                transcriber.transcribe(userCMDDict[`${userTag}`].audioBuffer, userCMDDict[`${userTag}`].stream).then( result => {
+                    //console.log("\t> ", result)
+                    isTranscribing = false
                     commandSwitcher(result, userTag)
                 })
             }
-
-            function _endTranscribe() {
-                console.log("ending transcribe")
-                isTranscribing = false
-                localTranscibe = false
-                DeepSpeech.FreeStream(modelStream)
-                audioStream.removeListener('data', _writeData)
-                audioStream.removeListener('end', _endTranscribe)
-                return
-            }
-
-            audioStream.on('data', _writeData)
-            audioStream.on('end', _endTranscribe)
-            //audioStream.end()
         }
+    }else {
+        userCMDDict[`${userTag}`] = {
+            audioBuffer: [],
+            stream: model.createStream()
+        }
+        
+        userCMDDict[`${userTag}`].audioBuffer.push(transcriber.initWAVHeader())
+        userCMDDict[`${userTag}`].audioBuffer.push(wavData)
+        userCMDDict[`${userTag}`].stream = model.createStream()
+
+        if (isTranscribing === false){
+            isTranscribing = true
+            transcriber.transcribe(userCMDDict[`${userTag}`].audioBuffer, userCMDDict[`${userTag}`].stream).then( result => {
+                console.log("\t> ", result)
+                isTranscribing = false
+                commandSwitcher(result, userTag)
+            })
+        }
+    }
+}
+
+function doTranscribe() {
+    voiceChannelConnection.on('speaking', async (user, speaking) => {
+        //console.log(speaking.bitfield)
+        if (user.bot) {
+            return
+        }
+
+        const userTag = `${user.tag}`.split("#")[1] // gets the user tag
+        console.log(`#${userTag} speaking`)
+
+        const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
+        
+        // Writes the audio data while the user is speaking
+        let _setStatus = false
+        function _writeData(data) {
+            interpretRoutine(userTag, data)
+            if (userCMDDict[`${userTag}`].audioBuffer.length > 50) {
+                if (_setStatus === false) {
+                    _setStatus = true
+                    globClient.user.setActivity(`👂 to #${userTag}`,"")
+                }
+            }
+        }
+
+        function _endTranscribe() {
+            console.log("ending transcribe")
+            isTranscribing = false
+            audioStream.removeListener('data', _writeData)
+            audioStream.removeListener('end', _endTranscribe)
+            return
+        }
+
+        audioStream.on('data', _writeData)
+        audioStream.on('end', _endTranscribe)
+        //audioStream.end()
     })
+}
+
+const sliceWindow = (arr, size) => {
+    if (size > arr.length) {
+        return arr;
+    }
+    let result = [];
+    let lastWindow = arr.length - size;
+    for (let i = 0; i <= lastWindow; i += 1) {
+        result.push(arr.slice(i, i + size));
+    }
+    return result;
 }
 
 function interpretCommand(rawString) {
@@ -117,7 +150,6 @@ function interpretCommand(rawString) {
     const cmdDictionary = [
         {cmd: 'skipsong', d: 3, arg: 'skip'},
         {cmd: 'nextsong', d: 3, arg: 'skip'},
-        {cmd: 'next', d: 2, arg: 'skip'},
 
         {cmd: 'replay', d: 2, arg: 'replay'},
         {cmd: 'playlast', d: 3, arg: 'replay'},
@@ -125,12 +157,21 @@ function interpretCommand(rawString) {
 
         {cmd: 'leavechannel', d: 4, arg: 'leave'},
         {cmd: 'leave', d: 1, arg: 'leave'},
+        {cmd: 'exit', d: 1, arg: 'leave'},
         {cmd: 'botleave', d: 1, arg: 'leave'},
     ]
 
     for (let i = 0; i < cmdDictionary.length; i++) {
-        if (levenshtein.get(command, cmdDictionary[i].cmd) <= cmdDictionary[i].d) {
-            return cmdDictionary[i].arg
+        if (rawString.length > 12) {
+            const chunks = sliceWindow(command, cmdDictionary[i].cmd.length)
+            console.log(chunks)
+            for (let j = 0; j < chunks.length; j++) {
+                if (levenshtein.get(chunks[j], cmdDictionary[i].cmd) <= cmdDictionary[i].d) {
+                    return cmdDictionary[i].arg
+                }
+            }
+        }else {
+            return false
         }
     }
     return false
@@ -141,19 +182,24 @@ function commandSwitcher(rawTranscript, userTag) {
 
     const cmd = interpretCommand(rawTranscript)
     console.log("the command is", cmd)
+
     switch(cmd) {
         case 'skip':
-            skipSong(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "skip song"\t`)
+            skipSong(`👂 #${userTag} ➡️ "skip song"\t`)
+            freeCMDDict()
             break
         
         case 'leave':
-            msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
+            
+            msgChannel.channel.send(`👂 #${userTag} ➡️ "leave channel"\t`)
 
             musicQueue = []
             previousSongs = []
+            isTranscribing = true
             voiceChannel.join().then(() => {
-                isTranscribing = false
                 voiceChannel.leave()
+                isTranscribing = false
+                freeCMDDict()
             })
             break
         
@@ -161,7 +207,7 @@ function commandSwitcher(rawTranscript, userTag) {
             if (previousSongs.length > 0) {
                 const _previousSong = previousSongs[0] // get the previous song
 
-                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t **Now Playing** *${_previousSong.name}*`)
+                msgChannel.channel.send(`👂 #${userTag} ➡️ "replay"\t **Now Playing** *${_previousSong.name}*`)
                 console.log(musicQueue)
                 console.log(previousSongs)
                 // put the previous song at the start of the queue
@@ -182,8 +228,9 @@ function commandSwitcher(rawTranscript, userTag) {
                 setTimeout(() => {
                     _playSong(voiceChannelConnection)
                 }, 500)
+                freeCMDDict()
             }else {
-                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t No audio to replay`)
+                msgChannel.channel.send(`👂 #${userTag} ➡️ "replay"\t No audio to replay`)
             }
             
             break
@@ -198,13 +245,19 @@ function commandSwitcher(rawTranscript, userTag) {
                     let _triggerWord = triggerObj.trigger
                     let _lev = triggerObj.lev
                     let _ytObj = triggerObj.ytObj
-                    if (levenshtein.get(command, _triggerWord) <= _lev){
-                        _objToPlay = _ytObj
-                        _consumedTrigger = _triggerWord
-                        return
+
+
+                    const chunks = sliceWindow(command, _triggerWord.length)
+                    for (let j = 0; j < chunks.length; j++) {
+                        if (levenshtein.get(chunks[j], _triggerWord) <= _lev) {
+                            _objToPlay = _ytObj
+                            _consumedTrigger = _triggerWord
+                            return
+                        }
                     }
                 })
-                if (_objToPlay !== false && _consumedTrigger !== false){
+                if (_objToPlay !== false && _consumedTrigger !== false) {
+                    freeCMDDict()
                     musicQueue.push(_objToPlay)
                     msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "${_consumedTrigger}" <${_objToPlay.address}>`)
                     if (musicQueue.length === 1){ // If there was no song playing before the last song was added then there will be 1 song in queue
@@ -231,6 +284,7 @@ function skipSong(extraString="") {
 }
 
 async function _playSong(connection) {
+    freeCMDDict()
     if (musicQueue.length !== 0) {
         let stream
         if (musicQueue[0].type == "yt") {
@@ -420,6 +474,7 @@ const leave = class extends commando.Command {
         try {
             musicQueue = []
             previousSongs = []
+            userCMDDict = {}
             voiceChannel.join().then(() => {
                 isTranscribing = false
                 voiceChannel.leave()
