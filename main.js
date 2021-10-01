@@ -58,7 +58,7 @@ function doTranscribe() {
             const userTag = `${user.tag}`.split("#")[1]
             console.log(`#${userTag} speaking`)
 
-            const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm', end: 'manual'}) // 16-bit signed PCM, stereo 48KHz stream
+            const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
             
             function _writeData(data) {
                 _audioBuffer.push(data)
