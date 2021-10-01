@@ -116,54 +116,57 @@ function interpretCommand(_rawTranscript, userTag) {
     
     globClient.user.setActivity(`done`,"")
 
-    if (currentCommandTime - lastExecutedCommandTime > 3000) {
-
-        // 1) Skip song
-        if ((levenshtein.get(command, 'skipsong') <= 3)) {
-            lastExecutedCommandTime = currentCommandTime
-            skipSong(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "skip song"\t`)
-        }else
+    // 1) Skip song
+    if ((levenshtein.get(command, 'skipsong') <= 3)) {
+        lastExecutedCommandTime = currentCommandTime
+        skipSong(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "skip song"\t`)
+    }else
+    
+    // 2) Leave the channel and clear all songs
+    if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 1 || levenshtein.get(command, 'botleave') <= 2) {
+        msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
+        lastExecutedCommandTime = currentCommandTime
+        musicQueue = []
+        previousSongs = []
+        voiceChannel.join().then(() => {
+            isTranscribing = false
+            voiceChannel.leave()
+        })
+    }
+    
+    if (levenshtein.get(command, 'replay') <= 2 || levenshtein.get(command, 'playlast') <= 4){
         
-        // 2) Leave the channel and clear all songs
-        if (levenshtein.get(command, 'leavechannel') <= 4 || levenshtein.get(command, 'leave') <= 1) {
-            msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
-            lastExecutedCommandTime = currentCommandTime
-            musicQueue = []
-            previousSongs = []
-            voiceChannel.join().then(() => {
-                isTranscribing = false
-                voiceChannel.leave()
-            })
-        }
-        if (levenshtein.get(command, 'replay') <= 2 || levenshtein.get(command, 'playlast') <= 4){
-            musicQueue.unshift(previousSongs[0])
-            setTimeout(() => {
-                _playSong(voiceChannelConnection)
-            }, 500)
-        }else {
-            // Run Custom Command
-            let _objToPlay = false
-            let _consumedTrigger = false
+        const _previousSong = previousSongs[0] // get the previous song
+        musicQueue.unshift(_previousSong)      // put the previous song at the start of the queue
+        previousSongs.shift()                  // decrement the previous song list
 
-            if (triggerArray !== undefined){
-                triggerArray.forEach(triggerObj => {
-                    let _triggerWord = triggerObj.trigger
-                    let _lev = triggerObj.lev
-                    let _ytObj = triggerObj.ytObj
-                    if (levenshtein.get(command, _triggerWord) <= _lev){
-                        _objToPlay = _ytObj
-                        _consumedTrigger = _triggerWord
-                        return
-                    }
-                })
-                if (_objToPlay !== false && _consumedTrigger !== false){
-                    musicQueue.push(_objToPlay)
-                    msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "${_consumedTrigger}" <${_objToPlay.address}>`)
-                    if (musicQueue.length === 1){ // If there was no song playing before the last song was added then there will be 1 song in queue
-                        setTimeout(() => {
-                            _playSong(voiceChannelConnection)
-                        }, 500)
-                    }
+        msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t **Now Playing** *${_previousSong.name}*`)
+        setTimeout(() => {
+            _playSong(voiceChannelConnection)
+        }, 500)
+    }else {
+        // Run Custom Command
+        let _objToPlay = false
+        let _consumedTrigger = false
+
+        if (triggerArray !== undefined){
+            triggerArray.forEach(triggerObj => {
+                let _triggerWord = triggerObj.trigger
+                let _lev = triggerObj.lev
+                let _ytObj = triggerObj.ytObj
+                if (levenshtein.get(command, _triggerWord) <= _lev){
+                    _objToPlay = _ytObj
+                    _consumedTrigger = _triggerWord
+                    return
+                }
+            })
+            if (_objToPlay !== false && _consumedTrigger !== false){
+                musicQueue.push(_objToPlay)
+                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "${_consumedTrigger}" <${_objToPlay.address}>`)
+                if (musicQueue.length === 1){ // If there was no song playing before the last song was added then there will be 1 song in queue
+                    setTimeout(() => {
+                        _playSong(voiceChannelConnection)
+                    }, 500)
                 }
             }
         }
@@ -172,7 +175,7 @@ function interpretCommand(_rawTranscript, userTag) {
 
 function skipSong(extraString=""){
     if (musicQueue.length !== 0){
-        previousSongs.push(musicQueue[0])
+        previousSongs.unshift(musicQueue[0])
         msgChannel.channel.send(`${extraString}**Skipped** \t *${musicQueue[0].name}*`)
         musicQueue.shift()
         setTimeout(() => {
