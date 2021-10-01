@@ -112,13 +112,16 @@ function interpretCommand(rawString) {
     command = rawTranscript.replace(/\s/g, '') // remove spaces
     const cmdDictionary = [
         {cmd: 'skipsong', d: 3, arg: 'skip'},
+        {cmd: 'nextsong', d: 3, arg: 'skip'},
+        {cmd: 'next', d: 2, arg: 'skip'},
+
+        {cmd: 'replay', d: 2, arg: 'replay'},
+        {cmd: 'playlast', d: 3, arg: 'replay'},
+        {cmd: 'lastsong', d: 3, arg: 'replay'},
 
         {cmd: 'leavechannel', d: 4, arg: 'leave'},
         {cmd: 'leave', d: 1, arg: 'leave'},
         {cmd: 'botleave', d: 1, arg: 'leave'},
-
-        {cmd: 'replay', d: 2, arg: 'replay'},
-        {cmd: 'playlast', d: 3, arg: 'replay'},
     ]
 
     for (let i = 0; i < cmdDictionary.length; i++) {
@@ -137,36 +140,56 @@ function commandSwitcher(rawTranscript, userTag) {
     switch(cmd) {
         case 'skip':
             skipSong(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "skip song"\t`)
-            break;
+            break
         
         case 'leave':
-            console.log("here")
             msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "leave channel"\t`)
+
             musicQueue = []
             previousSongs = []
             voiceChannel.join().then(() => {
                 isTranscribing = false
                 voiceChannel.leave()
             })
-            break;
+            break
         
         case 'replay':
-            const _previousSong = previousSongs[0] // get the previous song
-            musicQueue.unshift(_previousSong)      // put the previous song at the start of the queue
-            previousSongs.shift()                  // decrement the previous song list
+            if (previousSongs.length > 0) {
+                const _previousSong = previousSongs[0] // get the previous song
+
+                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t **Now Playing** *${_previousSong.name}*`)
+                console.log(musicQueue)
+                console.log(previousSongs)
+                // put the previous song at the start of the queue
+                if (musicQueue.length >= 1) {
+                    musicQueue.unshift(_previousSong)
+                }else {
+                    musicQueue = []
+                    musicQueue.push(_previousSong)
+                }
     
-            msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t **Now Playing** *${_previousSong.name}*`)
-            setTimeout(() => {
-                _playSong(voiceChannelConnection)
-            }, 500)
-            break;
+                // decrement the previous song list
+                if (previousSongs.length >= 1 ) {
+                    previousSongs.shift()
+                }else {
+                    previousSongs = []
+                }
+
+                setTimeout(() => {
+                    _playSong(voiceChannelConnection)
+                }, 500)
+            }else {
+                msgChannel.channel.send(`👂 #${userTag} "\`${rawTranscript}\`" ➡️ "replay"\t No audio to replay`)
+            }
+            
+            break
         
         default:
             // Run Custom Command
             let _objToPlay = false
             let _consumedTrigger = false
 
-            if (triggerArray !== undefined){
+            if (triggerArray !== undefined) {
                 triggerArray.forEach(triggerObj => {
                     let _triggerWord = triggerObj.trigger
                     let _lev = triggerObj.lev
@@ -187,26 +210,18 @@ function commandSwitcher(rawTranscript, userTag) {
                     }
                 }
             }
-            break;
     }
 }
 
-function skipSong(extraString=""){
+function skipSong(extraString="") {
     if (musicQueue.length !== 0){
         msgChannel.channel.send(`${extraString}**Skipped** \t *${musicQueue[0].name}*`)
+        previousSongs.unshift(musicQueue[0])
         musicQueue.shift()
         setTimeout(() => {
             _playSong(voiceChannelConnection)
         }, 500)
     }else{
-        if (extraString === "") {
-            voiceChannel.join().then(() => {
-                isTranscribing = false
-                voiceChannel.leave().then(() => {
-                    voiceChannel.join()
-                })
-            })
-        }
         return
     }
 }
@@ -233,11 +248,6 @@ async function _playSong(connection) {
             if(musicQueue.length === 0) {
                 console.log("No more songs to be played...")
                 musicQueue = []
-                /*
-                voiceChannel.join().then(() => {
-                    isTranscribing = false
-                    voiceChannel.leave()
-                })*/
             }else {
                 skipSong()
             }
@@ -251,11 +261,6 @@ async function _playSong(connection) {
         }catch(e){
             return
         }
-        /*
-        voiceChannel.join().then(() => {
-            isTranscribing = false
-            voiceChannel.leave()
-        })*/
     }
 }
 
@@ -369,7 +374,6 @@ const skip = class extends commando.Command {
                 console.log("No more songs to be played...")
                 musicQueue = []
                 isTranscribing = false
-                //voiceChannel.leave()
             }else {
                 skipSong()
             }
@@ -442,7 +446,6 @@ const pull = class extends commando.Command {
             triggerArray = _res
             console.log("Google sheet pull done.")
             msgChannel.channel.send(`Google sheet pull complete. ${triggerArray.length} unique triggers.`)
-            //console.log(triggerObj)
         })
     }
 }
