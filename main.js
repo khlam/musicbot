@@ -38,6 +38,8 @@ let model = new DeepSpeech.Model(modelPath)
 let userCMDDict = {}
 let isTranscribing = false
 
+let isPlaying = false // if playing audio stop listening
+
 function freeCMDDict() {
 /*    try {
         Object.keys(userCMDDict).forEach( user => {
@@ -95,41 +97,43 @@ function interpretRoutine(userTag, wavData) {
 }
 
 function doTranscribe() {
-    voiceChannelConnection.on('speaking', async (user, speaking) => {
-        //console.log(speaking.bitfield)
-        if (user.bot) {
-            return
-        }
-
-        const userTag = `${user.tag}`.split("#")[1] // gets the user tag
-        console.log(`#${userTag} speaking`)
-
-        const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
-        
-        // Writes the audio data while the user is speaking
-        let _setStatus = false
-        function _writeData(data) {
-            interpretRoutine(userTag, data)
-            if (userCMDDict[`${userTag}`].audioBuffer.length > 50) {
-                if (_setStatus === false) {
-                    _setStatus = true
-                    globClient.user.setActivity(`👂 to #${userTag}`,"")
+    if (isPlaying === false) {
+        voiceChannelConnection.on('speaking', async (user, speaking) => {
+            //console.log(speaking.bitfield)
+            if (user.bot) {
+                return
+            }
+    
+            const userTag = `${user.tag}`.split("#")[1] // gets the user tag
+            console.log(`#${userTag} speaking`)
+    
+            const audioStream = voiceChannelConnection.receiver.createStream(user, {mode: 'pcm'}) // 16-bit signed PCM, stereo 48KHz stream
+            
+            // Writes the audio data while the user is speaking
+            let _setStatus = false
+            function _writeData(data) {
+                interpretRoutine(userTag, data)
+                if (userCMDDict[`${userTag}`].audioBuffer.length > 50) {
+                    if (_setStatus === false) {
+                        _setStatus = true
+                        globClient.user.setActivity(`👂 to #${userTag}`,"")
+                    }
                 }
             }
-        }
-
-        function _endTranscribe() {
-            console.log("ending transcribe")
-            isTranscribing = false
-            audioStream.removeListener('data', _writeData)
-            audioStream.removeListener('end', _endTranscribe)
-            return
-        }
-
-        audioStream.on('data', _writeData)
-        audioStream.on('end', _endTranscribe)
-        //audioStream.end()
-    })
+    
+            function _endTranscribe() {
+                console.log("ending transcribe")
+                isTranscribing = false
+                audioStream.removeListener('data', _writeData)
+                audioStream.removeListener('end', _endTranscribe)
+                return
+            }
+    
+            audioStream.on('data', _writeData)
+            audioStream.on('end', _endTranscribe)
+            //audioStream.end()
+        })
+    }
 }
 
 const sliceWindow = (arr, size) => {
@@ -284,6 +288,7 @@ function skipSong(extraString="") {
 }
 
 async function _playSong(connection) {
+    isPlaying = true
     freeCMDDict()
     if (musicQueue.length !== 0) {
         let stream
@@ -304,6 +309,7 @@ async function _playSong(connection) {
 
         dispatcher.on('finish', () => {
             if(musicQueue.length === 0) {
+                isPlaying = false
                 console.log("No more songs to be played...")
                 musicQueue = []
             }else {
@@ -313,6 +319,7 @@ async function _playSong(connection) {
 
     }else if (musicQueue.length === 0){
         console.log("No more songs to be played...")
+        isPlaying = false
         try {
             connection.dispatcher.end()
             return
@@ -352,6 +359,9 @@ async function _addToQueueAndPlay(msg, _vObj, musicObj) {
 
 async function _joinChannel(msg, _vObj) {
     msgChannel = msg
+
+    isPlaying = false
+
     if (_vObj) {
         voiceChannel = _vObj
         
